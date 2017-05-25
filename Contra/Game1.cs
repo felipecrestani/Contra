@@ -2,6 +2,8 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using Lidgren.Network;
+using System.Linq;
 
 namespace Contra
 {
@@ -14,11 +16,26 @@ namespace Contra
         SpriteBatch spriteBatch;
         List<Sprite> sprites;
 
+        Dictionary<long, Vector2> positions = new Dictionary<long, Vector2>();
+        NetClient client;
+        AnimatedSprite player;
+
 
         public Game1()
         {
             graphics = new GraphicsDeviceManager(this);
+            graphics.PreferredBackBufferWidth = 1280;
+            graphics.PreferredBackBufferHeight = 720;
+            graphics.ApplyChanges();
+            
             Content.RootDirectory = "Content";
+
+            //Client
+            NetPeerConfiguration config = new NetPeerConfiguration("xnaapp");
+            config.EnableMessageType(NetIncomingMessageType.DiscoveryResponse);
+
+            client = new NetClient(config);
+            client.Start();            
         }
 
         /// <summary>
@@ -31,7 +48,7 @@ namespace Contra
         {
             // TODO: Add your initialization logic here
             sprites = new List<Sprite>();
-
+            client.DiscoverLocalPeers(14242);
             base.Initialize();
         }
 
@@ -43,21 +60,26 @@ namespace Contra
         {
             // Create a new SpriteBatch, which can be used to draw textures.
             spriteBatch = new SpriteBatch(GraphicsDevice);
+            CreatePlayer();
 
-            var input = new Input { Up = Keys.Up, Down = Keys.Down, Left = Keys.Left, Right = Keys.Right };
-            AnimatedSprite player = new AnimatedSprite(Content.Load<Texture2D>("player"), new Vector2(200, 200),1,9,4);
-            player.Input = input;
-            player.velocity = 4f;
-            sprites.Add(player);
+            //CreatePlayer();
 
-
-            var input2 = new Input { Up = Keys.Up, Down = Keys.Down, Left = Keys.NumPad4, Right = Keys.NumPad6 };
-            AnimatedSprite player2 = new AnimatedSprite(Content.Load<Texture2D>("player"), new Vector2(600, 200), 1, 9, 4);
-            player2.Input = input2;
-            player2.velocity = 4f;
-            sprites.Add(player2);
+            //var input2 = new Input { Up = Keys.Up, Down = Keys.Down, Left = Keys.NumPad4, Right = Keys.NumPad6 };
+            //AnimatedSprite player2 = new AnimatedSprite(Content.Load<Texture2D>("player"), new Vector2(600, 200), 1, 9, 4);
+            //player2.Input = input2;
+            //player2.velocity = 4f;
+            //sprites.Add(player2);
 
             // TODO: use this.Content to load your game content here
+        }
+
+        private void CreatePlayer()
+        {
+            var input = new Input { Up = Keys.Up, Down = Keys.Down, Left = Keys.Left, Right = Keys.Right };
+            player = new AnimatedSprite(Content.Load<Texture2D>("player"), new Vector2(200, 200), 1, 9, 4);
+            player.Input = input;
+            player.velocity = 4f;
+            //sprites.Add(player);
         }
 
         /// <summary>
@@ -79,13 +101,42 @@ namespace Contra
             if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
                 Exit();
 
-            foreach (Sprite sprite in sprites)
+            // read messages
+            NetIncomingMessage msg;
+            while ((msg = client.ReadMessage()) != null)
             {
-                sprite.Update(gameTime);
+                switch (msg.MessageType)
+                {
+                    case NetIncomingMessageType.DiscoveryResponse:
+                        // just connect to first server discovered
+                        client.Connect(msg.SenderEndPoint);
+                        break;
+                    case NetIncomingMessageType.Data:
+                        // server sent a position update
+                        long who = msg.ReadInt64();
+                        float x = msg.ReadInt32();
+                        float y = msg.ReadInt32();
+                        positions[who] = new Vector2(x, y);
+
+                        if (x != 0 && y != 0) ;
+                            player.Position = new Vector2(x, y);
+
+                        break;
+                }
             }
 
-            // TODO: Add your update logic here
+            foreach (Sprite sprite in sprites)
+            {
+                sprite.Update(gameTime);                
+            }
 
+            player.Update(gameTime);
+
+            NetOutgoingMessage om = client.CreateMessage();
+            om.Write((int)player.Position.X); // very inefficient to send a full Int32 (4 bytes) but we'll use this for simplicity
+            om.Write((int)player.Position.Y);
+            client.SendMessage(om, NetDeliveryMethod.Unreliable);
+           
             base.Update(gameTime);
         }
 
@@ -103,6 +154,8 @@ namespace Contra
             {
                 sprite.Draw(spriteBatch,sprite.Position);
             }
+
+            player.Draw(spriteBatch,player.Position);
 
             spriteBatch.End();
 
