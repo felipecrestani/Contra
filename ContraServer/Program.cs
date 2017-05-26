@@ -9,6 +9,8 @@ namespace XnaGameServer
     {
         static void Main(string[] args)
         {
+            Console.WriteLine("Contra Server... Alpha 0.0.0.1");
+
             NetPeerConfiguration config = new NetPeerConfiguration("xnaapp");
             config.EnableMessageType(NetIncomingMessageType.DiscoveryRequest);
             config.Port = 14242;
